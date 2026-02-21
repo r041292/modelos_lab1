@@ -4,18 +4,11 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 
 st.set_page_config(page_title="Dashboard Retail Alimentos", layout="wide")
-
-PALETTE = {
-	"primary": "#1F3C88",
-	"secondary": "#4E79A7",
-	"accent": "#2E8B57",
-	"neutral": "#4A4A4A",
-	"bg_soft": "#F5F7FA",
-}
 
 DAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
 
@@ -86,34 +79,50 @@ def apply_filters(df: pd.DataFrame) -> pd.DataFrame:
 	return filtered
 
 
-def style_fig(fig):
+def get_theme_settings() -> dict:
+	theme_base = st.get_option("theme.base")
+	is_dark = theme_base == "dark"
+	if is_dark:
+		return {
+			"template": "plotly_dark",
+			"text": "#E5E7EB",
+			"primary": "#7AA2F7",
+			"secondary": "#8FB5FF",
+			"accent": "#6FCF97",
+			"muted": "#A3A3A3",
+			"pie": ["#7AA2F7", "#8FB5FF", "#73C2BE", "#6FCF97", "#A3BE8C"],
+			"heat": ["#22314A", "#476FA3", "#7AA2F7"],
+		}
+	return {
+		"template": "plotly_white",
+		"text": "#374151",
+		"primary": "#1F3C88",
+		"secondary": "#4E79A7",
+		"accent": "#2E8B57",
+		"muted": "#6B7280",
+		"pie": ["#1F3C88", "#4E79A7", "#76B7B2", "#2E8B57", "#59A14F"],
+		"heat": ["#DCE6F2", "#89A8D8", "#1F3C88"],
+	}
+
+
+def style_fig(fig, theme: dict):
 	fig.update_layout(
-		template="plotly_white",
-		font={"color": PALETTE["neutral"]},
-		paper_bgcolor="white",
-		plot_bgcolor="white",
+		template=theme["template"],
+		font={"color": theme["text"]},
+		paper_bgcolor="rgba(0,0,0,0)",
+		plot_bgcolor="rgba(0,0,0,0)",
 		margin={"l": 20, "r": 20, "t": 55, "b": 20},
 	)
 	return fig
 
 
 def main() -> None:
-	st.markdown(
-		"""
-		<style>
-		.main { background-color: #F8FAFC; }
-		.block-container { padding-top: 1.4rem; padding-bottom: 1.2rem; }
-		h1, h2, h3 { color: #1F3C88; }
-		</style>
-		""",
-		unsafe_allow_html=True,
-	)
-
 	st.title("Panel General de Ventas")
 	st.caption("Retail de alimentos: conversiones, ventas, categorías y promociones")
 
 	df = load_data()
 	filtered_df = apply_filters(df)
+	theme = get_theme_settings()
 
 	if filtered_df.empty:
 		st.warning("No hay datos con los filtros seleccionados.")
@@ -124,36 +133,53 @@ def main() -> None:
 	col_kpi2.metric("Ventas totales", f"${filtered_df['total_sales'].sum():,.0f}")
 	col_kpi3.metric("Conversion rate promedio", f"{filtered_df['conversion_rate'].mean() * 100:.2f}%")
 
-	conv_by_day = (
-		filtered_df.groupby("day_of_week", as_index=False)["conversion_rate"].mean().copy()
-	)
-	conv_by_day["day_of_week"] = pd.Categorical(conv_by_day["day_of_week"], categories=DAY_ORDER, ordered=True)
-	conv_by_day = conv_by_day.sort_values("day_of_week")
-	conv_by_day["conversion_pct"] = conv_by_day["conversion_rate"] * 100
+	avg_conversion_pct = float(filtered_df["conversion_rate"].mean() * 100)
+	gauge_max = max(40, round(max(avg_conversion_pct * 1.35, 32)))
 
-	fig_conv = px.bar(
-		conv_by_day,
-		x="day_of_week",
-		y="conversion_pct",
-		color_discrete_sequence=[PALETTE["primary"]],
-		labels={"day_of_week": "Día de la semana", "conversion_pct": "Conversion rate (%)"},
-		title="Conversión por Día",
+	fig_gauge = go.Figure(
+		go.Indicator(
+			mode="gauge+number+delta",
+			value=avg_conversion_pct,
+			number={"suffix": "%", "font": {"size": 36, "color": theme["text"]}},
+			delta={"reference": 30, "relative": False, "valueformat": ".2f", "suffix": " pp"},
+			title={"text": "Conversión Promedio", "font": {"size": 18, "color": theme["text"]}},
+			gauge={
+				"axis": {"range": [0, gauge_max], "tickcolor": theme["muted"]},
+				"bar": {"color": theme["primary"]},
+				"bgcolor": "rgba(0,0,0,0)",
+				"steps": [
+					{"range": [0, 20], "color": "rgba(127,127,127,0.20)"},
+					{"range": [20, 30], "color": "rgba(127,127,127,0.35)"},
+					{"range": [30, gauge_max], "color": "rgba(127,127,127,0.15)"},
+				],
+				"threshold": {
+					"line": {"color": theme["accent"], "width": 4},
+					"thickness": 0.8,
+					"value": 30,
+				},
+			},
+		)
 	)
-	fig_conv.update_traces(hovertemplate="Día: %{x}<br>Conversion: %{y:.2f}%<extra></extra>")
-	st.plotly_chart(style_fig(fig_conv), use_container_width=True)
+	fig_gauge.update_layout(
+		template=theme["template"],
+		font={"color": theme["text"]},
+		paper_bgcolor="rgba(0,0,0,0)",
+		margin={"l": 20, "r": 20, "t": 55, "b": 20},
+	)
+	st.plotly_chart(fig_gauge, use_container_width=True)
 
 	daily_sales = filtered_df.groupby("date", as_index=False)["total_sales"].sum()
 	fig_sales = px.line(
 		daily_sales,
 		x="date",
 		y="total_sales",
-		color_discrete_sequence=[PALETTE["secondary"]],
+		color_discrete_sequence=[theme["secondary"]],
 		markers=True,
 		labels={"date": "Fecha", "total_sales": "Ventas diarias"},
 		title="Ventas Diarias",
 	)
 	fig_sales.update_traces(hovertemplate="Fecha: %{x|%Y-%m-%d}<br>Ventas: $%{y:,.2f}<extra></extra>")
-	st.plotly_chart(style_fig(fig_sales), use_container_width=True)
+	st.plotly_chart(style_fig(fig_sales, theme), use_container_width=True)
 
 	missing_cols = [col for col in CATEGORY_COLS if col not in filtered_df.columns]
 	if missing_cols:
@@ -170,45 +196,29 @@ def main() -> None:
 		values="units",
 		hole=0.35,
 		color="category",
-		color_discrete_sequence=[
-			PALETTE["primary"],
-			PALETTE["secondary"],
-			"#76B7B2",
-			PALETTE["accent"],
-			"#59A14F",
-		],
+		color_discrete_sequence=theme["pie"],
 		title="Participación por Categoría",
 	)
 	fig_pie.update_traces(textposition="inside", textinfo="percent+label")
-	st.plotly_chart(style_fig(fig_pie), use_container_width=True)
+	st.plotly_chart(style_fig(fig_pie, theme), use_container_width=True)
 
-	heat_df = filtered_df.copy()
-	heat_df["traffic_bin"] = pd.cut(
-		heat_df["customer_traffic"],
-		bins=8,
-		include_lowest=True,
-	).astype(str)
-
-	heat_data = (
-		heat_df.groupby(["promo_type", "traffic_bin"], as_index=False)
-		.size()
-		.rename(columns={"size": "count_days"})
+	promo_traffic = (
+		filtered_df.groupby("promo_type", as_index=False)["customer_traffic"].mean()
+		.sort_values("customer_traffic", ascending=False)
 	)
 
-	fig_heat = px.density_heatmap(
-		heat_data,
+	fig_promo_bar = px.bar(
+		promo_traffic,
 		x="promo_type",
-		y="traffic_bin",
-		z="count_days",
-		color_continuous_scale=["#DCE6F2", "#89A8D8", PALETTE["primary"]],
-		labels={
-			"promo_type": "Tipo de promoción",
-			"traffic_bin": "Rango de customer_traffic",
-			"count_days": "Número de días",
-		},
-		title="Promoción vs Tráfico",
+		y="customer_traffic",
+		color="promo_type",
+		color_discrete_sequence=theme["pie"],
+		labels={"promo_type": "Tipo de descuento", "customer_traffic": "Clientes promedio"},
+		title="Clientes Promedio por Descuento",
 	)
-	st.plotly_chart(style_fig(fig_heat), use_container_width=True)
+	fig_promo_bar.update_traces(hovertemplate="Promo: %{x}<br>Clientes promedio: %{y:.1f}<extra></extra>")
+	fig_promo_bar.update_layout(showlegend=False)
+	st.plotly_chart(style_fig(fig_promo_bar, theme), use_container_width=True)
 
 
 if __name__ == "__main__":
