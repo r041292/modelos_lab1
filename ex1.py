@@ -129,10 +129,9 @@ def main() -> None:
 		st.warning("No hay datos con los filtros seleccionados.")
 		st.stop()
 
-	col_kpi1, col_kpi2, col_kpi3, col_gauge = st.columns([1, 1, 1, 1.25])
+	col_kpi1, col_kpi2, col_gauge = st.columns([1, 1, 1.5])
 	col_kpi1.metric("Registros", f"{len(filtered_df):,}")
 	col_kpi2.metric("Ventas totales", f"${filtered_df['total_sales'].sum():,.0f}")
-	col_kpi3.metric("Conversion rate promedio", f"{filtered_df['conversion_rate'].mean() * 100:.2f}%")
 
 	avg_conversion_pct = float(filtered_df["conversion_rate"].mean() * 100)
 	gauge_max = max(40, round(max(avg_conversion_pct * 1.35, 32)))
@@ -169,26 +168,6 @@ def main() -> None:
 		margin={"l": 8, "r": 8, "t": 30, "b": 8},
 	)
 	col_gauge.plotly_chart(fig_gauge, use_container_width=True)
-
-	conv_by_day = (
-		filtered_df.groupby("day_of_week", as_index=False)["conversion_rate"].mean().copy()
-	)
-	conv_by_day["day_of_week"] = pd.Categorical(
-		conv_by_day["day_of_week"], categories=DAY_ORDER, ordered=True
-	)
-	conv_by_day = conv_by_day.sort_values("day_of_week")
-	conv_by_day["conversion_pct"] = conv_by_day["conversion_rate"] * 100
-
-	fig_conv_day = px.bar(
-		conv_by_day,
-		x="day_of_week",
-		y="conversion_pct",
-		color_discrete_sequence=[theme["primary"]],
-		labels={"day_of_week": "Día de la semana", "conversion_pct": "Conversion rate (%)"},
-		title="Conversión por Día",
-	)
-	fig_conv_day.update_traces(hovertemplate="Día: %{x}<br>Conversión: %{y:.2f}%<extra></extra>")
-	st.plotly_chart(style_fig(fig_conv_day, theme), use_container_width=True)
 
 	daily_sales = filtered_df.groupby("date", as_index=False)["total_sales"].sum()
 	fig_sales = px.line(
