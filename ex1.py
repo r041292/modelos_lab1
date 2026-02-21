@@ -5,6 +5,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
 
@@ -128,7 +129,7 @@ def main() -> None:
 		st.warning("No hay datos con los filtros seleccionados.")
 		st.stop()
 
-	col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+	col_kpi1, col_kpi2, col_kpi3, col_gauge = st.columns([1, 1, 1, 1.25])
 	col_kpi1.metric("Registros", f"{len(filtered_df):,}")
 	col_kpi2.metric("Ventas totales", f"${filtered_df['total_sales'].sum():,.0f}")
 	col_kpi3.metric("Conversion rate promedio", f"{filtered_df['conversion_rate'].mean() * 100:.2f}%")
@@ -164,9 +165,30 @@ def main() -> None:
 		template=theme["template"],
 		font={"color": theme["text"]},
 		paper_bgcolor="rgba(0,0,0,0)",
-		margin={"l": 20, "r": 20, "t": 55, "b": 20},
+		height=220,
+		margin={"l": 8, "r": 8, "t": 30, "b": 8},
 	)
-	st.plotly_chart(fig_gauge, use_container_width=True)
+	col_gauge.plotly_chart(fig_gauge, use_container_width=True)
+
+	conv_by_day = (
+		filtered_df.groupby("day_of_week", as_index=False)["conversion_rate"].mean().copy()
+	)
+	conv_by_day["day_of_week"] = pd.Categorical(
+		conv_by_day["day_of_week"], categories=DAY_ORDER, ordered=True
+	)
+	conv_by_day = conv_by_day.sort_values("day_of_week")
+	conv_by_day["conversion_pct"] = conv_by_day["conversion_rate"] * 100
+
+	fig_conv_day = px.bar(
+		conv_by_day,
+		x="day_of_week",
+		y="conversion_pct",
+		color_discrete_sequence=[theme["primary"]],
+		labels={"day_of_week": "Día de la semana", "conversion_pct": "Conversion rate (%)"},
+		title="Conversión por Día",
+	)
+	fig_conv_day.update_traces(hovertemplate="Día: %{x}<br>Conversión: %{y:.2f}%<extra></extra>")
+	st.plotly_chart(style_fig(fig_conv_day, theme), use_container_width=True)
 
 	daily_sales = filtered_df.groupby("date", as_index=False)["total_sales"].sum()
 	fig_sales = px.line(
@@ -219,6 +241,58 @@ def main() -> None:
 	fig_promo_bar.update_traces(hovertemplate="Promo: %{x}<br>Clientes promedio: %{y:.1f}<extra></extra>")
 	fig_promo_bar.update_layout(showlegend=False)
 	st.plotly_chart(style_fig(fig_promo_bar, theme), use_container_width=True)
+
+	combined_daily = (
+		filtered_df.groupby("date", as_index=False)
+		.agg(customer_traffic=("customer_traffic", "mean"), conversion_rate=("conversion_rate", "mean"))
+	)
+
+	fig_combo = make_subplots(specs=[[{"secondary_y": True}]])
+	fig_combo.add_trace(
+		go.Bar(
+			x=combined_daily["date"],
+			y=combined_daily["customer_traffic"],
+			name="Tráfico de clientes",
+			marker_color=theme["secondary"],
+			opacity=0.78,
+			hovertemplate="Fecha: %{x|%Y-%m-%d}<br>Clientes: %{y:.1f}<extra></extra>",
+		),
+		secondary_y=False,
+	)
+	fig_combo.add_trace(
+		go.Scatter(
+			x=combined_daily["date"],
+			y=combined_daily["conversion_rate"] * 100,
+			name="Conversion rate",
+			mode="lines+markers",
+			line={"color": theme["accent"], "width": 2.5},
+			hovertemplate="Fecha: %{x|%Y-%m-%d}<br>Conversión: %{y:.2f}%<extra></extra>",
+		),
+		secondary_y=True,
+	)
+	fig_combo.update_yaxes(title_text="Clientes", secondary_y=False)
+	fig_combo.update_yaxes(title_text="Conversion rate (%)", secondary_y=True)
+	fig_combo.update_layout(title="Tráfico y Conversión", legend={"orientation": "h", "y": 1.08, "x": 0})
+	st.plotly_chart(style_fig(fig_combo, theme), use_container_width=True)
+
+	monthly_sales = filtered_df.copy()
+	monthly_sales["month_dt"] = monthly_sales["date"].dt.to_period("M").dt.to_timestamp()
+	monthly_sales = monthly_sales.groupby("month_dt", as_index=False)["total_sales"].sum()
+	monthly_sales["growth_pct"] = monthly_sales["total_sales"].pct_change() * 100
+	monthly_sales = monthly_sales.dropna(subset=["growth_pct"])
+
+	fig_growth = px.line(
+		monthly_sales,
+		x="month_dt",
+		y="growth_pct",
+		markers=True,
+		color_discrete_sequence=[theme["primary"]],
+		labels={"month_dt": "Mes", "growth_pct": "Crecimiento % vs período anterior"},
+		title="Crecimiento Mensual vs Período Anterior",
+	)
+	fig_growth.update_traces(hovertemplate="Mes: %{x|%Y-%m}<br>Crecimiento: %{y:.2f}%<extra></extra>")
+	fig_growth.add_hline(y=0, line_dash="dash", line_color=theme["muted"])
+	st.plotly_chart(style_fig(fig_growth, theme), use_container_width=True)
 
 
 if __name__ == "__main__":
