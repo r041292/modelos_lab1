@@ -242,38 +242,27 @@ def main() -> None:
 	fig_promo_bar.update_layout(showlegend=False)
 	st.plotly_chart(style_fig(fig_promo_bar, theme), use_container_width=True)
 
-	combined_daily = (
-		filtered_df.groupby("date", as_index=False)
-		.agg(customer_traffic=("customer_traffic", "mean"), conversion_rate=("conversion_rate", "mean"))
+	meat_by_day = (
+		filtered_df.groupby("day_of_week", as_index=False)["units_carnes"].mean().copy()
 	)
+	meat_by_day["day_of_week"] = pd.Categorical(
+		meat_by_day["day_of_week"], categories=DAY_ORDER, ordered=True
+	)
+	meat_by_day = meat_by_day.sort_values("day_of_week")
 
-	fig_combo = make_subplots(specs=[[{"secondary_y": True}]])
-	fig_combo.add_trace(
-		go.Bar(
-			x=combined_daily["date"],
-			y=combined_daily["customer_traffic"],
-			name="Tráfico de clientes",
-			marker_color=theme["secondary"],
-			opacity=0.78,
-			hovertemplate="Fecha: %{x|%Y-%m-%d}<br>Clientes: %{y:.1f}<extra></extra>",
-		),
-		secondary_y=False,
+	fig_meat_day = px.bar(
+		meat_by_day,
+		x="day_of_week",
+		y="units_carnes",
+		color_discrete_sequence=[theme["accent"]],
+		labels={
+			"day_of_week": "Día de la semana",
+			"units_carnes": "Ventas de carne promedio (unidades)",
+		},
+		title="Ventas de Carne Promedio por Día",
 	)
-	fig_combo.add_trace(
-		go.Scatter(
-			x=combined_daily["date"],
-			y=combined_daily["conversion_rate"] * 100,
-			name="Conversion rate",
-			mode="lines+markers",
-			line={"color": theme["accent"], "width": 2.5},
-			hovertemplate="Fecha: %{x|%Y-%m-%d}<br>Conversión: %{y:.2f}%<extra></extra>",
-		),
-		secondary_y=True,
-	)
-	fig_combo.update_yaxes(title_text="Clientes", secondary_y=False)
-	fig_combo.update_yaxes(title_text="Conversion rate (%)", secondary_y=True)
-	fig_combo.update_layout(title="Tráfico y Conversión", legend={"orientation": "h", "y": 1.08, "x": 0})
-	st.plotly_chart(style_fig(fig_combo, theme), use_container_width=True)
+	fig_meat_day.update_traces(hovertemplate="Día: %{x}<br>Carne promedio: %{y:.1f}<extra></extra>")
+	st.plotly_chart(style_fig(fig_meat_day, theme), use_container_width=True)
 
 	monthly_sales = filtered_df.copy()
 	monthly_sales["month_dt"] = monthly_sales["date"].dt.to_period("M").dt.to_timestamp()
@@ -293,6 +282,41 @@ def main() -> None:
 	fig_growth.update_traces(hovertemplate="Mes: %{x|%Y-%m}<br>Crecimiento: %{y:.2f}%<extra></extra>")
 	fig_growth.add_hline(y=0, line_dash="dash", line_color=theme["muted"])
 	st.plotly_chart(style_fig(fig_growth, theme), use_container_width=True)
+
+	combined_monthly = filtered_df.copy()
+	combined_monthly["month_dt"] = combined_monthly["date"].dt.to_period("M").dt.to_timestamp()
+	combined_monthly = (
+		combined_monthly.groupby("month_dt", as_index=False)
+		.agg(customer_traffic=("customer_traffic", "mean"), conversion_rate=("conversion_rate", "mean"))
+	)
+
+	fig_combo = make_subplots(specs=[[{"secondary_y": True}]])
+	fig_combo.add_trace(
+		go.Bar(
+			x=combined_monthly["month_dt"],
+			y=combined_monthly["customer_traffic"],
+			name="Tráfico de clientes",
+			marker_color=theme["secondary"],
+			opacity=0.78,
+			hovertemplate="Mes: %{x|%Y-%m}<br>Clientes: %{y:.1f}<extra></extra>",
+		),
+		secondary_y=False,
+	)
+	fig_combo.add_trace(
+		go.Scatter(
+			x=combined_monthly["month_dt"],
+			y=combined_monthly["conversion_rate"],
+			name="Conversion rate",
+			mode="lines+markers",
+			line={"color": theme["accent"], "width": 2.5},
+			hovertemplate="Mes: %{x|%Y-%m}<br>Conversión: %{y:.3f}<extra></extra>",
+		),
+		secondary_y=True,
+	)
+	fig_combo.update_yaxes(title_text="Clientes", secondary_y=False)
+	fig_combo.update_yaxes(title_text="Conversion rate", secondary_y=True)
+	fig_combo.update_layout(title="Tráfico y Conversión Mensual", legend={"orientation": "h", "y": 1.08, "x": 0})
+	st.plotly_chart(style_fig(fig_combo, theme), use_container_width=True)
 
 
 if __name__ == "__main__":
